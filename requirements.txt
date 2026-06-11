@@ -14,11 +14,11 @@ aiofiles==24.1.0
 # ── Perception (local CV) ──────────────────────────
 # Heavy: install separately on the perception host. App falls back to
 # heuristic stubs if these are absent (enable_perception still True).
-numpy==2.2.0
-opencv-python-headless==4.10.0.84
-ultralytics==8.3.40          # YOLOv8 + FastSAM
-torch==2.5.1                 # CPU build for perception; CUDA build for local SD
-timm==1.0.12                 # MiDaS depth via torch.hub
-diffusers==0.31.0            # local Stable Diffusion + ControlNet
-accelerate==1.2.1            # enables model_cpu_offload for 4GB VRAM
-httpx==0.28.1                # already listed above, used in precache script too
+numpy>=1.26
+opencv-python-headless>=4.9
+ultralytics>=8.3             # YOLOv8 + FastSAM (no exact pin — avoids torch conflicts)
+# torch: install MANUALLY with CUDA BEFORE running pip install -r requirements.txt
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+timm>=0.9                    # MiDaS depth via torch.hub
+diffusers>=0.30              # local Stable Diffusion + ControlNet
+accelerate>=0.26             # enables model_cpu_offload for 4GB VRAM

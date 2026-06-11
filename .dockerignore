@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+.git/
+*.egg-info/
+app/static/results/*
+app/static/precached/*
+!app/static/results/.gitkeep
+!app/static/precached/.gitkeep
