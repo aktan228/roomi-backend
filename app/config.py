@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     replicate_api_token: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    # Set to https://openrouter.ai/api/v1 if using OpenRouter key (sk-or-v1-...)
+    openai_base_url: str = ""
 
     # Groq (Llama) — design brief + chat
     groq_api_key: str = ""

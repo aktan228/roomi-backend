@@ -31,7 +31,10 @@ def _mock_reply(request: ChatRequest) -> ChatResponse:
 async def _openai_reply(request: ChatRequest, settings) -> ChatResponse:
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url or None,
+    )
 
     system_prompt = (
         "You are roomi.ai — an expert AI interior design assistant. "

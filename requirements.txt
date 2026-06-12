@@ -20,5 +20,6 @@ ultralytics>=8.3             # YOLOv8 + FastSAM (no exact pin — avoids torch c
 # torch: install MANUALLY with CUDA BEFORE running pip install -r requirements.txt
 # pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 timm>=0.9                    # MiDaS depth via torch.hub
+transformers>=4.36           # required by diffusers pipelines
 diffusers>=0.30              # local Stable Diffusion + ControlNet
 accelerate>=0.26             # enables model_cpu_offload for 4GB VRAM
