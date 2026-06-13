@@ -31,7 +31,11 @@ _SYSTEM = (
     "  shopping_list (array of {item, category, why, est_price (int KGS), priority (1-3)})\n"
     "  reno_plan (array of {phase (int), title, tasks (string[]), est_cost (int KGS)})\n"
     "Respect the budget. Prefer replacing objects the analysis marked 'replace'. "
-    "Size furniture to the measured area. Keep prices realistic for the region."
+    "Size furniture to the measured area. Keep prices realistic for the region. "
+    "IMPORTANT: if the user's preferences mention specific colors, materials or "
+    "finishes (e.g. 'black walls', 'wooden floor'), reflect them EXPLICITLY and "
+    "prominently in sd_prompt and in the reno_plan tasks. "
+    "Write a UNIQUE plan tailored to THIS room — never a generic template."
 )
 
 
@@ -42,32 +46,14 @@ def build_brief(
     preferences: str | None,
 ) -> DesignBrief:
     settings = get_settings()
-    if not settings.use_groq:
-        return _stub(analysis, style, budget)
+    content = _call_llm(settings, analysis, style, budget, preferences)
+    if content is None:
+        return _stub(analysis, style, budget, preferences)
 
     try:
-        from groq import Groq
-        client = Groq(api_key=settings.groq_api_key)
-
-        user_payload = {
-            "analysis": analysis.model_dump(),
-            "style": style,
-            "budget_kgs": budget,
-            "preferences": preferences or "",
-        }
-        resp = client.chat.completions.create(
-            model=settings.groq_model,
-            messages=[
-                {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.6,
-            max_tokens=1500,
-        )
-        data = json.loads(resp.choices[0].message.content or "{}")
+        data = json.loads(content or "{}")
         return DesignBrief(
-            sd_prompt=data.get("sd_prompt") or _fallback_prompt(analysis, style),
+            sd_prompt=data.get("sd_prompt") or _fallback_prompt(analysis, style, preferences),
             negative_prompt=data.get("negative_prompt", _NEG),
             inpaint_targets=data.get("inpaint_targets", []),
             shopping_list=[ShoppingItem(**s) for s in data.get("shopping_list", [])],
@@ -75,7 +61,52 @@ def build_brief(
             is_stub=False,
         )
     except Exception:
-        return _stub(analysis, style, budget)
+        return _stub(analysis, style, budget, preferences)
+
+
+def _call_llm(settings, analysis, style, budget, preferences) -> str | None:
+    """Try Groq first, then any OpenAI-compatible endpoint (OpenAI/OpenRouter)."""
+    payload = json.dumps({
+        "analysis": analysis.model_dump(),
+        "style": style,
+        "budget_kgs": budget,
+        "preferences": preferences or "",
+    }, ensure_ascii=False)
+    messages = [
+        {"role": "system", "content": _SYSTEM},
+        {"role": "user", "content": payload},
+    ]
+
+    if settings.use_groq:
+        try:
+            from groq import Groq
+            client = Groq(api_key=settings.groq_api_key)
+            resp = client.chat.completions.create(
+                model=settings.groq_model, messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0.6, max_tokens=1500,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"[brief] groq error: {e}")
+
+    if settings.use_openai:
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url or None,
+            )
+            resp = client.chat.completions.create(
+                model=settings.openai_model, messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0.6, max_tokens=1500,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"[brief] openai error: {e}")
+
+    return None
 
 
 # ── Heuristic fallback (coherent with the analysis, not random) ──
@@ -84,15 +115,18 @@ _NEG = ("lowres, watermark, text, deformed, blurry, out of focus, "
         "cluttered, distorted perspective, ugly")
 
 
-def _fallback_prompt(analysis: RoomAnalysis, style: str) -> str:
+def _fallback_prompt(analysis: RoomAnalysis, style: str, preferences: str | None = None) -> str:
+    # User wishes go FIRST so they carry the most weight in the diffusion prompt.
+    extra = f"{preferences.strip()}, " if preferences and preferences.strip() else ""
     return (
-        f"{analysis.room_type.replace('_', ' ')}, "
+        f"{analysis.room_type.replace('_', ' ')}, {extra}"
         f"{STYLE_PROMPTS.get(style, STYLE_PROMPTS['minimal'])}, "
         f"{analysis.lighting} natural lighting, photorealistic, 8k, interior photography"
     )
 
 
-def _stub(analysis: RoomAnalysis, style: str, budget: int | None) -> DesignBrief:
+def _stub(analysis: RoomAnalysis, style: str, budget: int | None,
+          preferences: str | None = None) -> DesignBrief:
     cap = budget or 120_000
     wall = analysis.surfaces.wall_m2
 
@@ -133,7 +167,7 @@ def _stub(analysis: RoomAnalysis, style: str, budget: int | None) -> DesignBrief
     ]
 
     return DesignBrief(
-        sd_prompt=_fallback_prompt(analysis, style),
+        sd_prompt=_fallback_prompt(analysis, style, preferences),
         negative_prompt=_NEG,
         inpaint_targets=["wall", "floor"],
         shopping_list=shopping,
