@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Form, HTTPExce
 from pydantic import BaseModel
 from typing import Any
 
+from app.config import get_settings
 from app.models.schemas import RedesignFullResponse, ProductsResponse, PlanResponse, PlanWeek
 from app.services import image_gen, job_store
 from app.services.perception import analyze_room
@@ -71,21 +72,36 @@ async def _run_pipeline(
     budget: int | None,
     preferences: str | None,
 ):
+    loop = asyncio.get_event_loop()
     try:
+        # Each stage is independently guarded — a failure degrades to a safe
+        # fallback (stub / mock) instead of failing the whole job.
         job_store.update(job_id, "analyzing")
-        analysis = await asyncio.get_event_loop().run_in_executor(
-            None, analyze_room, image_bytes, room_type
-        )
+        try:
+            analysis = await loop.run_in_executor(None, analyze_room, image_bytes, room_type)
+        except Exception as e:
+            print(f"[pipeline] perception failed: {e}")
+            from app.services.perception import _stub
+            analysis = _stub(room_type, get_settings().ceiling_height_m)
 
         job_store.update(job_id, "briefing")
-        brief = await asyncio.get_event_loop().run_in_executor(
-            None, build_brief, analysis, style, budget, preferences
-        )
+        try:
+            brief = await loop.run_in_executor(None, build_brief, analysis, style, budget, preferences)
+        except Exception as e:
+            print(f"[pipeline] brief failed: {e}")
+            from app.services.design_brief import _stub as _brief_stub
+            brief = _brief_stub(analysis, style, budget, preferences)
 
         job_store.update(job_id, "generating")
-        result = await image_gen.generate_redesign(
-            image_bytes, style, room_type, sd_prompt=brief.sd_prompt
-        )
+        try:
+            result = await image_gen.generate_redesign(
+                image_bytes, style, room_type, sd_prompt=brief.sd_prompt
+            )
+        except Exception as e:
+            print(f"[pipeline] generation failed: {e}")
+            from app.services.image_gen import _mock_response
+            import uuid as _uuid
+            result = _mock_response(str(_uuid.uuid4())[:8], style)
 
         products = _brief_to_products(brief, style, budget)
         plan = _brief_to_plan(brief, result.design_id)

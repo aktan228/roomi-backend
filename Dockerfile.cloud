@@ -1,0 +1,21 @@
+# roomi-backend — lightweight cloud image (no GPU, no ML stack).
+# Images via Replicate, brief/chat via Groq/OpenAI, perception in stub mode.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    ENABLE_PERCEPTION=false \
+    LOCAL_SD=false
+
+WORKDIR /app
+
+COPY requirements-cloud.txt .
+RUN pip install -r requirements-cloud.txt
+
+COPY . .
+RUN mkdir -p app/static/precached app/static/results
+
+EXPOSE 8000
+# Render/Railway inject $PORT; default to 8000 locally
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

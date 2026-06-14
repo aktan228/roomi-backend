@@ -9,23 +9,65 @@ MOCK_REPLIES = [
     "Зеркала визуально увеличивают комнату. Разместите большое зеркало напротив окна — это удвоит естественный свет.",
 ]
 
+_SYSTEM_PROMPT = (
+    "You are roomi.ai — an expert AI interior design assistant. "
+    "Help users redesign their living spaces with practical, affordable advice. "
+    "Focus on Central Asian market (Kyrgyzstan, Kazakhstan, Uzbekistan). "
+    "Recommend locally available furniture and materials. "
+    "Keep answers concise, friendly, and actionable. "
+    "Respond in the same language the user writes in (Russian or Kyrgyz preferred)."
+)
+
 
 async def chat(request: ChatRequest) -> ChatResponse:
+    """Groq first (fast), then any OpenAI-compatible endpoint, then mock."""
     settings = get_settings()
 
-    if not settings.use_openai:
-        return _mock_reply(request)
+    if settings.use_groq:
+        try:
+            return await _groq_reply(request, settings)
+        except Exception as e:
+            print(f"[chat] groq error: {e}")
 
-    return await _openai_reply(request, settings)
+    if settings.use_openai:
+        try:
+            return await _openai_reply(request, settings)
+        except Exception as e:
+            print(f"[chat] openai error: {e}")
+
+    return _mock_reply(request)
+
+
+def _build_messages(request: ChatRequest) -> list[dict]:
+    system_prompt = _SYSTEM_PROMPT
+    if request.context:
+        system_prompt += f"\n\nUser context: {request.context}"
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for msg in request.history[-6:]:  # last 3 turns
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": request.message})
+    return messages
 
 
 def _mock_reply(request: ChatRequest) -> ChatResponse:
     import random
-    context = request.context or ""
     reply = random.choice(MOCK_REPLIES)
-    # Simple substitution from context
     reply = reply.replace("{style}", "минимализм").replace("{budget}", "50,000")
     return ChatResponse(reply=reply, is_mock=True)
+
+
+async def _groq_reply(request: ChatRequest, settings) -> ChatResponse:
+    from groq import AsyncGroq
+
+    client = AsyncGroq(api_key=settings.groq_api_key)
+    response = await client.chat.completions.create(
+        model=settings.groq_model,
+        messages=_build_messages(request),
+        max_tokens=400,
+        temperature=0.7,
+    )
+    return ChatResponse(reply=response.choices[0].message.content or "", is_mock=False)
 
 
 async def _openai_reply(request: ChatRequest, settings) -> ChatResponse:
@@ -35,31 +77,10 @@ async def _openai_reply(request: ChatRequest, settings) -> ChatResponse:
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
     )
-
-    system_prompt = (
-        "You are roomi.ai — an expert AI interior design assistant. "
-        "Help users redesign their living spaces with practical, affordable advice. "
-        "Focus on Central Asian market (Kyrgyzstan, Kazakhstan, Uzbekistan). "
-        "Recommend locally available furniture and materials. "
-        "Keep answers concise, friendly, and actionable. "
-        "Respond in the same language the user writes in (Russian or Kyrgyz preferred)."
-    )
-    if request.context:
-        system_prompt += f"\n\nUser context: {request.context}"
-
-    messages = [{"role": "system", "content": system_prompt}]
-    for msg in request.history[-6:]:  # last 3 turns
-        messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": request.message})
-
     response = await client.chat.completions.create(
         model=settings.openai_model,
-        messages=messages,
+        messages=_build_messages(request),
         max_tokens=400,
         temperature=0.7,
     )
-
-    return ChatResponse(
-        reply=response.choices[0].message.content or "",
-        is_mock=False,
-    )
+    return ChatResponse(reply=response.choices[0].message.content or "", is_mock=False)

@@ -37,6 +37,13 @@ app.mount("/static", StaticFiles(directory=str(_static)), name="static")
 
 @app.get("/health")
 def health():
+    import importlib.util
+    has_cv = all(importlib.util.find_spec(m) for m in ("ultralytics", "torch"))
+    if not settings.enable_perception:
+        perception = "disabled"
+    else:
+        perception = "ready" if has_cv else "stub"
+
     return {
         "status": "ok",
         "mode": {
@@ -44,6 +51,7 @@ def health():
                 "local_sd" if settings.local_sd else
                 "replicate" if settings.use_replicate else "mock"
             ),
-            "chat": "groq" if settings.use_groq else "openai" if settings.use_openai else "mock",
+            "llm": "groq" if settings.use_groq else "openai" if settings.use_openai else "mock",
+            "perception": perception,
         },
     }

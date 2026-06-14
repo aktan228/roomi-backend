@@ -42,15 +42,17 @@ _midas_tf = None
 def analyze_room(image_bytes: bytes, room_type: str) -> RoomAnalysis:
     settings = get_settings()
 
+    # Cloud / no-GPU deploys run with perception disabled → instant stub,
+    # no heavy imports attempted.
+    if not settings.enable_perception:
+        return _stub(room_type, settings.ceiling_height_m)
+
     try:
         import numpy as np
         from PIL import Image
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         arr = np.array(img)
     except Exception:
-        return _stub(room_type, settings.ceiling_height_m)
-
-    if not settings.enable_perception:
         return _stub(room_type, settings.ceiling_height_m)
 
     objects = _detect(arr)
